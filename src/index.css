@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-sans: "Nunito", "Segoe UI", Tahoma, Verdana, sans-serif;
+
+  --color-cream: #F6EFE2;
+  --color-paper: #FFFDF8;
+  --color-parchment: #F0E6D2;
+  --color-ink: #2C221C;
+  --color-walnut: #5F5147;
+  --color-rule: #D9CCB8;
+  --color-rule-strong: #8E7D68;
+  --color-forest: #2B6A58;
+  --color-forest-hover: #215445;
+  --color-terracotta: #B34423;
+  --color-terracotta-hover: #94361A;
+  --color-ochre: #8C621C;
+  --color-slate-ink: #3B5568;
+  --color-danger: #9E2A2B;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background-color: var(--color-cream);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 3px solid var(--color-forest);
+    outline-offset: 2px;
+  }
+}
+
+/* Classic notebook lined paper rules aligned to 32px line height */
+.diary-lined-paper {
+  line-height: 32px;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 31px,
+    rgba(166, 144, 118, 0.34) 31px,
+    rgba(166, 144, 118, 0.34) 32px
+  );
+  background-attachment: local;
+  padding-top: 2px;
+}
+
+/* Custom warm horizontal scrollbar for the profile picker */
+.warm-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 8px;
+}
+
+.warm-scroll::-webkit-scrollbar-track {
+  background: #EADEC9;
+  border-radius: 999px;
+}
+
+.warm-scroll::-webkit-scrollbar-thumb {
+  background: #B8A58D;
+  border-radius: 999px;
+  border: 2px solid #EADEC9;
+}
+
+.warm-scroll::-webkit-scrollbar-thumb:hover {
+  background: #8E7D68;
+}
+
+.notebook-card {
+  background-color: var(--color-paper);
+  border: 1.5px solid var(--color-rule);
+  box-shadow: 0 2px 0 var(--color-rule);
+}
+
+.notebook-card-interactive {
+  background-color: var(--color-paper);
+  border: 1.5px solid var(--color-rule);
+  box-shadow: 0 2px 0 var(--color-rule);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.notebook-card-interactive:hover {
+  border-color: var(--color-rule-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 var(--color-rule);
+}
