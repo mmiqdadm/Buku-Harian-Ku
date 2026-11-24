@@ -7,17 +7,26 @@ import {
   deleteDoc,
   onSnapshot,
 } from 'firebase/firestore';
-import type { ChildProfile, JournalEntry, MediaAttachment, SyncStateSummary } from '../types';
+import type {
+  ChildProfile,
+  CreativeStory,
+  JournalEntry,
+  MediaAttachment,
+  SyncStateSummary,
+} from '../types';
 import {
   getDB,
   getAllEntries,
   getAllProfiles,
+  getAllStories,
   getEntryById,
   getMediaBlobLocal,
   getMetaValue,
+  getStoryById,
   saveEntryLocal,
   saveMediaBlobLocal,
   saveProfileLocal,
+  saveStoryLocal,
   setMetaValue,
 } from './db';
 import { getFirestoreInstance, isFirebaseConfigured } from './firebase';
@@ -25,6 +34,7 @@ import { blobToDataUrl, dataUrlToBlob } from './media';
 
 const PROFILES_COL = 'bhk_profiles';
 const ENTRIES_COL = 'bhk_entries';
+const STORIES_COL = 'bhk_stories';
 const MEDIA_COL = 'bhk_media';
 const LAST_SYNC_META_KEY = 'lastSyncedAt';
 
@@ -110,13 +120,15 @@ export async function ensureMediaBlobAvailable(att: MediaAttachment): Promise<Bl
 }
 
 export async function countPendingSync(): Promise<number> {
-  const [profiles, entries] = await Promise.all([
+  const [profiles, entries, stories] = await Promise.all([
     getAllProfiles(true),
     getAllEntries(true),
+    getAllStories(true),
   ]);
   const pendingProfiles = profiles.filter((p) => p.syncStatus === 'pending').length;
   const pendingEntries = entries.filter((e) => e.syncStatus === 'pending').length;
-  return pendingProfiles + pendingEntries;
+  const pendingStories = stories.filter((s) => s.syncStatus === 'pending').length;
+  return pendingProfiles + pendingEntries + pendingStories;
 }
 
 export async function getSyncSummary(
@@ -188,6 +200,7 @@ function serializeAttachment(att: MediaAttachment): Record<string, unknown> {
 export interface RealtimeSyncCallbacks {
   onProfilesUpdated?: () => void;
   onEntriesUpdated?: () => void;
+  onStoriesUpdated?: () => void;
   onStatusChanged?: (summary: SyncStateSummary) => void;
   onError?: (error: string) => void;
 }
@@ -200,6 +213,7 @@ export function subscribeToRealtimeSync(callbacks: RealtimeSyncCallbacks): () =>
 
   let isInitialProfiles = true;
   let isInitialEntries = true;
+  let isInitialStories = true;
 
   const unsubProfiles = onSnapshot(
     collection(db, PROFILES_COL),
@@ -302,9 +316,60 @@ export function subscribeToRealtimeSync(callbacks: RealtimeSyncCallbacks): () =>
     }
   );
 
+  const unsubStories = onSnapshot(
+    collection(db, STORIES_COL),
+    async (snapshot) => {
+      try {
+        let hasChanges = false;
+
+        for (const change of snapshot.docChanges()) {
+          if (change.type === 'added' || change.type === 'modified') {
+            const remote = change.doc.data() as CreativeStory;
+            const local = await getStoryById(remote.id);
+            if (
+              !local ||
+              remote.updatedAt > local.updatedAt ||
+              (remote.updatedAt === local.updatedAt && local.syncStatus !== 'synced')
+            ) {
+              await saveStoryLocal({ ...remote, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          } else if (change.type === 'removed') {
+            const local = await getStoryById(change.doc.id);
+            if (local && !local.deleted) {
+              await saveStoryLocal({ ...local, deleted: true, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          }
+        }
+
+        if (hasChanges || isInitialStories) {
+          isInitialStories = false;
+          await setMetaValue(LAST_SYNC_META_KEY, Date.now());
+          callbacks.onStoriesUpdated?.();
+        }
+
+        const summary = await getSyncSummary(false, null);
+        callbacks.onStatusChanged?.(summary);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Gagal memproses pembaruan buku cerita realtime';
+        callbacks.onError?.(msg);
+      }
+    },
+    (err) => {
+      const msg = err.message || 'Koneksi realtime buku cerita terputus';
+      void getSyncSummary(false, msg).then((s) => callbacks.onStatusChanged?.(s));
+      callbacks.onError?.(msg);
+    }
+  );
+
   return () => {
     unsubProfiles();
     unsubEntries();
+    unsubStories();
   };
 }
 
@@ -329,9 +394,10 @@ export async function syncWithCloud(): Promise<SyncStateSummary> {
 
     try {
       // 1. Fetch remote snapshots first
-      const [remoteProfilesSnap, remoteEntriesSnap] = await Promise.all([
+      const [remoteProfilesSnap, remoteEntriesSnap, remoteStoriesSnap] = await Promise.all([
         getDocs(collection(db, PROFILES_COL)),
         getDocs(collection(db, ENTRIES_COL)),
+        getDocs(collection(db, STORIES_COL)),
       ]);
 
       const remoteProfileMap = new Map<string, ChildProfile>();
@@ -342,6 +408,11 @@ export async function syncWithCloud(): Promise<SyncStateSummary> {
       const remoteEntryMap = new Map<string, JournalEntry>();
       for (const snap of remoteEntriesSnap.docs) {
         remoteEntryMap.set(snap.id, snap.data() as JournalEntry);
+      }
+
+      const remoteStoryMap = new Map<string, CreativeStory>();
+      for (const snap of remoteStoriesSnap.docs) {
+        remoteStoryMap.set(snap.id, snap.data() as CreativeStory);
       }
 
       // 2. Push local profiles that are newer than cloud (or missing in cloud)
@@ -439,6 +510,33 @@ export async function syncWithCloud(): Promise<SyncStateSummary> {
         const local = await getEntryById(remote.id);
         if (!local || remote.updatedAt > local.updatedAt) {
           await saveEntryLocal({ ...remote, syncStatus: 'synced' });
+        }
+      }
+
+      // 5. Push local stories that are newer than cloud (or missing in cloud)
+      const localStories = await getAllStories(true);
+      for (const story of localStories) {
+        const remote = remoteStoryMap.get(story.id);
+        if (remote && remote.updatedAt > story.updatedAt) {
+          await saveStoryLocal({ ...remote, syncStatus: 'synced' });
+          continue;
+        }
+        if (
+          story.syncStatus !== 'synced' ||
+          !remote ||
+          story.updatedAt > (remote?.updatedAt ?? 0)
+        ) {
+          const cleanStory: CreativeStory = { ...story, syncStatus: 'synced' };
+          await setDoc(doc(db, STORIES_COL, story.id), stripUndefined(cleanStory));
+          await saveStoryLocal(cleanStory);
+        }
+      }
+
+      // 6. Pull any remote stories missing locally or newer on remote
+      for (const remote of remoteStoryMap.values()) {
+        const local = await getStoryById(remote.id);
+        if (!local || remote.updatedAt > local.updatedAt) {
+          await saveStoryLocal({ ...remote, syncStatus: 'synced' });
         }
       }
 

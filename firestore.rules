@@ -15,8 +15,8 @@ rules_version = '2';
 //
 // Compensating controls enforced by these rules (for Buku Harian Ku):
 //   1. Explicit default-deny on all collections/subcollections outside
-//      the three `Buku Harian Ku` collections (`bhk_profiles`,
-//      `bhk_entries`, `bhk_media`) and the five existing collections
+//      the four `Buku Harian Ku` collections (`bhk_profiles`,
+//      `bhk_entries`, `bhk_stories`, `bhk_media`) and the five existing collections
 //      coexisting on Firebase project `formal-office-ndw25` (`members`,
 //      `admins`, `events`, `event_attendances`, `settings`).
 //   2. Strict schema validation (`hasOnly` + `hasAll`), explicit CEL
@@ -26,10 +26,10 @@ rules_version = '2';
 //   3. Strict per-field string length and list size limits to mitigate
 //      resource exhaustion / 1 MiB payload DoS attacks.
 //   4. Path-to-document-ID consistency and immutable key protection on
-//      updates (`id`, `childId`, `createdAt` on entries; `id` on profiles;
+//      updates (`id`, `childId`, `createdAt` on entries and stories; `id` on profiles;
 //      `id`/`parentId`/`entryId`/`index` on media).
-//   5. Hard deletes blocked on `bhk_profiles` and `bhk_entries` (app
-//      uses soft-delete via `deleted: true`); hard deletes permitted
+//   5. Hard deletes blocked on `bhk_profiles`, `bhk_entries`, and `bhk_stories`
+//      (app uses soft-delete via `deleted: true`); hard deletes permitted
 //      only on `bhk_media` to clean up media payloads of deleted entries.
 //
 // COEXISTENCE NOTE (`formal-office-ndw25`):
@@ -87,6 +87,29 @@ rules_version = '2';
 //   - updatedAt: number (required, positive epoch ms)
 //   - deleted: bool (optional, soft-delete flag)
 //   - syncStatus: string (required, enum: 'synced' | 'pending' | 'local-only')
+//
+// Collection: bhk_stories
+// Document ID: {storyId} (random unique ID)
+// Operations: read (get/list), create, update (soft-delete via `deleted`); delete DENIED
+// Fields:
+//   - id: string (required, 1..80 chars, must equal storyId, immutable on update)
+//   - childId: string (required, 1..80 chars, matches ^[a-zA-Z0-9_-]{1,80}$, immutable on update)
+//   - title: string (required, 0..200 chars)
+//   - synopsis: string (required, 0..5000 chars)
+//   - coverTone: string (required, enum: 'forest' | 'terracotta' | 'ochre' | 'slate')
+//   - chapters: list of maps (required, size <= 50; items conform to StoryChapter)
+//   - createdAt: int or float (required, positive, immutable on update)
+//   - updatedAt: int or float (required, positive)
+//   - deleted: bool (optional, soft-delete flag)
+//   - syncStatus: string (required, enum: 'synced' | 'pending' | 'local-only')
+//
+// Chapter Map Schema (inside chapters list):
+//   - id: string (required, 1..80 chars)
+//   - title: string (required, 0..200 chars)
+//   - content: string (required, 0..50000 chars)
+//   - order: int (required, 1..50)
+//   - createdAt: int or float (required, positive)
+//   - updatedAt: int or float (required, positive)
 //
 // Collection: bhk_media
 // Document ID: {mediaDocId} (`<attId>` for main doc, `<attId>_part_<index>` for chunks)
@@ -179,6 +202,10 @@ service cloud.firestore {
 
     function isValidEpochMs(val) {
       return val is number && val > 0 && val < 10000000000000;
+    }
+
+    function isPositiveNumber(val) {
+      return (val is int || val is float) && val > 0;
     }
 
     function isValidList(listVal, maxSize) {
@@ -326,6 +353,57 @@ service cloud.firestore {
       );
     }
 
+    function isValidChapter(ch) {
+      return ch is map &&
+        hasOnlyAllowedFields(ch, [
+          'id', 'title', 'content', 'order', 'createdAt', 'updatedAt'
+        ]) &&
+        hasRequiredFields(ch, [
+          'id', 'title', 'content', 'order', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidString(ch.id, 1, 80) &&
+        isValidString(ch.title, 0, 200) &&
+        isValidString(ch.content, 0, 50000) &&
+        ch.order is int && ch.order >= 1 && ch.order <= 50 &&
+        isPositiveNumber(ch.createdAt) &&
+        isPositiveNumber(ch.updatedAt);
+    }
+
+    function isValidStory(data, storyId) {
+      return hasOnlyAllowedFields(data, [
+          'id', 'childId', 'title', 'synopsis', 'coverTone',
+          'chapters', 'createdAt', 'updatedAt', 'deleted', 'syncStatus'
+        ]) &&
+        hasRequiredFields(data, [
+          'id', 'childId', 'title', 'synopsis', 'coverTone',
+          'chapters', 'createdAt', 'updatedAt', 'syncStatus'
+        ]) &&
+        isValidString(data.id, 1, 80) &&
+        data.id == storyId &&
+        isValidString(data.childId, 1, 80) &&
+        data.childId.matches('^[a-zA-Z0-9_-]{1,80}$') &&
+        isValidString(data.title, 0, 200) &&
+        isValidString(data.synopsis, 0, 5000) &&
+        data.coverTone in ['forest', 'terracotta', 'ochre', 'slate'] &&
+        // Firestore Rules CEL does not support iterating over lists of maps;
+        // enforce strict list bound and validate the first chapter shape when present.
+        isValidList(data.chapters, 50) &&
+        (data.chapters.size() == 0 || isValidChapter(data.chapters[0])) &&
+        isPositiveNumber(data.createdAt) &&
+        isPositiveNumber(data.updatedAt) &&
+        isValidOptionalBool(data, 'deleted') &&
+        isValidSyncStatus(data.syncStatus);
+    }
+
+    function isValidStoryCreate(storyId) {
+      return isValidStory(request.resource.data, storyId);
+    }
+
+    function isValidStoryUpdate(storyId) {
+      return isValidStory(request.resource.data, storyId) &&
+        areImmutableFieldsUnchanged(['id', 'childId', 'createdAt']);
+    }
+
     // ===============================================================
     // Existing App Helpers & Collections on formal-office-ndw25
     // ===============================================================
@@ -404,6 +482,14 @@ service cloud.firestore {
       allow create: if isValidMediaDoc(request.resource.data, mediaDocId);
       allow update: if isValidMediaUpdate(request.resource.data, resource.data, mediaDocId);
       allow delete: if true;
+    }
+
+    // 4. Creative Stories (no-auth family mode; soft-delete only)
+    match /bhk_stories/{storyId} {
+      allow get, list: if true;
+      allow create: if isValidStoryCreate(storyId);
+      allow update: if isValidStoryUpdate(storyId);
+      allow delete: if false;
     }
 
     // ===============================================================

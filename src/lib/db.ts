@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { ChildProfile, JournalEntry } from '../types';
+import type { ChildProfile, CreativeStory, JournalEntry } from '../types';
 
 interface MediaBlobRecord {
   id: string;
@@ -28,6 +28,13 @@ interface BukuHarianDB extends DBSchema {
       'by-child-date': [string, string];
     };
   };
+  stories: {
+    key: string;
+    value: CreativeStory;
+    indexes: {
+      'by-child': string;
+    };
+  };
   mediaBlobs: {
     key: string;
     value: MediaBlobRecord;
@@ -42,7 +49,7 @@ interface BukuHarianDB extends DBSchema {
 }
 
 const DB_NAME = 'buku-harian-ku-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<BukuHarianDB>> | null = null;
 
@@ -58,6 +65,10 @@ export function getDB(): Promise<IDBPDatabase<BukuHarianDB>> {
           entryStore.createIndex('by-child', 'childId');
           entryStore.createIndex('by-child-month', ['childId', 'monthKey']);
           entryStore.createIndex('by-child-date', ['childId', 'dateKey']);
+        }
+        if (!db.objectStoreNames.contains('stories')) {
+          const storyStore = db.createObjectStore('stories', { keyPath: 'id' });
+          storyStore.createIndex('by-child', 'childId');
         }
         if (!db.objectStoreNames.contains('mediaBlobs')) {
           const mediaStore = db.createObjectStore('mediaBlobs', { keyPath: 'id' });
@@ -217,4 +228,36 @@ export async function getMetaValue<T>(key: string): Promise<T | null> {
 export async function setMetaValue<T>(key: string, value: T): Promise<void> {
   const db = await getDB();
   await db.put('meta', { key, value });
+}
+
+export async function getAllStories(includeDeleted = false): Promise<CreativeStory[]> {
+  const db = await getDB();
+  const all = await db.getAll('stories');
+  const filtered = includeDeleted ? all : all.filter((s) => !s.deleted);
+  return filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function getStoriesByChild(
+  childId: string,
+  includeDeleted = false
+): Promise<CreativeStory[]> {
+  const db = await getDB();
+  const all = await db.getAllFromIndex('stories', 'by-child', childId);
+  const filtered = includeDeleted ? all : all.filter((s) => !s.deleted);
+  return filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function getStoryById(id: string): Promise<CreativeStory | undefined> {
+  const db = await getDB();
+  return db.get('stories', id);
+}
+
+export async function saveStoryLocal(story: CreativeStory): Promise<void> {
+  const db = await getDB();
+  await db.put('stories', story);
+}
+
+export async function deleteStoryLocal(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('stories', id);
 }

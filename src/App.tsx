@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ChildProfile, JournalEntry, SyncStateSummary } from './types';
+import type { ChildProfile, CreativeStory, JournalEntry, SyncStateSummary } from './types';
 import {
   deleteMediaBlobsByEntryLocal,
   ensureDefaultProfiles,
   getAllEntries,
   getAllProfiles,
+  getAllStories,
   saveEntryLocal,
   saveProfileLocal,
+  saveStoryLocal,
 } from './lib/db';
 import { isFirebaseConfigured } from './lib/firebase';
 import { getSyncSummary, subscribeToRealtimeSync, syncWithCloud } from './lib/sync';
 import { ProfilePicker } from './components/ProfilePicker';
 import { ProfileModal } from './components/ProfileModal';
 import { JournalWorkspace } from './components/JournalWorkspace';
+import { StoryWorkspace } from './components/StoryWorkspace';
 import { ExportWordModal } from './components/ExportWordModal';
 import { ParentModeModal } from './components/ParentModeModal';
 
@@ -22,7 +25,9 @@ export function App() {
 
   const [profiles, setProfiles] = useState<ChildProfile[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [stories, setStories] = useState<CreativeStory[]>([]);
   const [activeChildId, setActiveChildId] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<'journal' | 'stories'>('journal');
 
   const [parentMode, setParentMode] = useState(false);
   const [parentModalOpen, setParentModalOpen] = useState(false);
@@ -43,12 +48,14 @@ export function App() {
   });
 
   const reloadLocalData = useCallback(async () => {
-    const [loadedProfiles, loadedEntries] = await Promise.all([
+    const [loadedProfiles, loadedEntries, loadedStories] = await Promise.all([
       getAllProfiles(false),
       getAllEntries(false),
+      getAllStories(false),
     ]);
     setProfiles(loadedProfiles);
     setEntries(loadedEntries);
+    setStories(loadedStories);
   }, []);
 
   const runSync = useCallback(async () => {
@@ -91,6 +98,9 @@ export function App() {
               if (active) void reloadLocalData();
             },
             onEntriesUpdated: () => {
+              if (active) void reloadLocalData();
+            },
+            onStoriesUpdated: () => {
               if (active) void reloadLocalData();
             },
             onStatusChanged: (summary) => {
@@ -236,6 +246,37 @@ export function App() {
     }
   }
 
+  async function handleSaveStory(story: CreativeStory) {
+    const toSave: CreativeStory = {
+      ...story,
+      syncStatus: isFirebaseConfigured() ? 'pending' : 'local-only',
+    };
+    await saveStoryLocal(toSave);
+    await reloadLocalData();
+    const summary = await getSyncSummary(false, null);
+    setSyncState(summary);
+    if (isFirebaseConfigured() && navigator.onLine) {
+      void runSync();
+    }
+  }
+
+  async function handleDeleteStory(story: CreativeStory) {
+    if (!parentMode) return;
+    const tombstone: CreativeStory = {
+      ...story,
+      deleted: true,
+      updatedAt: Date.now(),
+      syncStatus: isFirebaseConfigured() ? 'pending' : 'local-only',
+    };
+    await saveStoryLocal(tombstone);
+    await reloadLocalData();
+    const summary = await getSyncSummary(false, null);
+    setSyncState(summary);
+    if (isFirebaseConfigured() && navigator.onLine) {
+      void runSync();
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center p-6">
@@ -273,9 +314,29 @@ export function App() {
           entryCounts={entryCounts}
           parentMode={parentMode}
           syncState={syncState}
-          onSelectChild={(id) => setActiveChildId(id)}
+          onSelectChild={(id) => {
+            setActiveChildId(id);
+            setActiveMode('journal');
+          }}
+          onSelectStorybook={(id) => {
+            setActiveChildId(id);
+            setActiveMode('stories');
+          }}
           onEditProfile={(profile) => setProfileModalTarget({ open: true, profile })}
           onAddProfile={() => setProfileModalTarget({ open: true, profile: null })}
+          onToggleParentMode={handleToggleParentMode}
+        />
+      ) : activeMode === 'stories' ? (
+        <StoryWorkspace
+          key={activeChild.id}
+          child={activeChild}
+          stories={stories}
+          syncState={syncState}
+          parentMode={parentMode}
+          onSaveStory={handleSaveStory}
+          onDeleteStory={handleDeleteStory}
+          onSwitchAccount={() => setActiveChildId(null)}
+          onSwitchToJournal={() => setActiveMode('journal')}
           onToggleParentMode={handleToggleParentMode}
         />
       ) : (
@@ -288,6 +349,7 @@ export function App() {
           onSaveEntry={handleSaveEntry}
           onDeleteEntry={handleDeleteEntry}
           onSwitchAccount={() => setActiveChildId(null)}
+          onOpenStorybook={() => setActiveMode('stories')}
           onEditProfile={() =>
             setProfileModalTarget({ open: true, profile: activeChild })
           }

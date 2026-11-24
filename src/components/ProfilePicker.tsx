@@ -16,6 +16,7 @@ interface ProfilePickerProps {
   parentMode: boolean;
   syncState?: SyncStateSummary;
   onSelectChild: (childId: string) => void;
+  onSelectStorybook: (childId: string) => void;
   onEditProfile: (profile: ChildProfile) => void;
   onAddProfile: () => void;
   onToggleParentMode: () => void;
@@ -34,6 +35,7 @@ export function ProfilePicker({
   parentMode,
   syncState,
   onSelectChild,
+  onSelectStorybook,
   onEditProfile,
   onAddProfile,
   onToggleParentMode,
@@ -200,23 +202,33 @@ export function ProfilePicker({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onSelectChild(child.id)}
-                      className="flex-1 py-2.5 px-4 min-h-[44px] rounded-xl text-white text-sm font-bold hover:opacity-95 cursor-pointer"
-                      style={{ backgroundColor: coverColor }}
-                    >
-                      Buka Buku {child.nickname || child.name}
-                    </button>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSelectChild(child.id)}
+                        className="flex-1 py-2.5 px-3 min-h-[44px] rounded-xl text-white text-xs sm:text-sm font-bold hover:opacity-95 cursor-pointer flex items-center justify-center gap-1.5"
+                        style={{ backgroundColor: coverColor }}
+                      >
+                        <BookCoverIcon className="w-4 h-4" />
+                        <span>Buku Harian</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectStorybook(child.id)}
+                        className="flex-1 py-2.5 px-3 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span>📖 Buku Cerita</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => onEditProfile(child)}
-                      className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-paper text-ink text-xs font-bold hover:bg-cream flex items-center gap-1.5 cursor-pointer"
+                      className="w-full py-1.5 px-3 min-h-[36px] rounded-lg border border-rule bg-paper text-ink text-xs font-bold hover:bg-cream flex items-center justify-center gap-1.5 cursor-pointer"
                       aria-label={`Edit profil dan biodata ${child.name}`}
                     >
-                      <PencilNibIcon className="w-4 h-4" />
-                      <span>Biodata</span>
+                      <PencilNibIcon className="w-3.5 h-3.5 text-forest" />
+                      <span>Biodata &amp; Profil</span>
                     </button>
                   </div>
                 </div>

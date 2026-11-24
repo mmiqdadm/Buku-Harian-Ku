@@ -9,14 +9,15 @@ import {
 import { compressImageBlob, createId } from '../lib/media';
 import { deleteMediaBlobLocal, saveMediaBlobLocal } from '../lib/db';
 import { CameraModal } from './CameraModal';
-import { HintModal } from './HintModal';
 import { MediaGallery } from './MediaPreview';
+import { WRITING_HINTS, type WritingHint } from '../data/hints';
 import {
   CameraLensIcon,
   CheckMarkIcon,
   ChevronLeftIcon,
   GalleryPhotoIcon,
   IdeaLampIcon,
+  ShuffleCardsIcon,
   TrashBinIcon,
   VoiceMicIcon,
 } from './Icons';
@@ -44,6 +45,8 @@ export function JournalEditor({
   // Strict date rule: new entries are always stamped with today's calendar date
   const lockedDateKey = entry ? entry.dateKey : todayKey;
   const isToday = lockedDateKey === todayKey;
+  const isReadOnly = !isToday;
+  const MAX_PHOTOS = 5;
 
   const entryIdRef = useRef<string>(entry?.id ?? createId('cerita'));
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -58,7 +61,22 @@ export function JournalEditor({
     entry?.attachments ?? []
   );
 
-  const [showHint, setShowHint] = useState(false);
+  const initialContentRef = useRef(entry?.content ?? '');
+  const initialAttachmentsCountRef = useRef(entry?.attachments?.length ?? 0);
+
+  const isDirty =
+    !isReadOnly &&
+    (content !== initialContentRef.current ||
+      attachments.length !== initialAttachmentsCountRef.current);
+
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const [currentHint, setCurrentHint] = useState<WritingHint>(() => {
+    return (
+      WRITING_HINTS[Math.floor(Math.random() * WRITING_HINTS.length)] ??
+      WRITING_HINTS[0]
+    );
+  });
+
   const [showCamera, setShowCamera] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -73,9 +91,12 @@ export function JournalEditor({
     entryIdRef.current = entry?.id ?? createId('cerita');
     setContent(entry?.content ?? '');
     setAttachments(entry?.attachments ?? []);
+    initialContentRef.current = entry?.content ?? '';
+    initialAttachmentsCountRef.current = entry?.attachments?.length ?? 0;
     setError(null);
     setSavedNotice(null);
     setConfirmDelete(false);
+    setShowUnsavedModal(false);
     if (!entry) {
       bodyRef.current?.focus();
     }
@@ -100,7 +121,7 @@ export function JournalEditor({
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (!saving && !recording) {
+        if (!saving && !recording && !isReadOnly) {
           void handleSave();
         }
       }
@@ -109,7 +130,43 @@ export function JournalEditor({
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  // Warn before closing browser/tab if user has unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  function handleShuffleHint() {
+    setCurrentHint((prev) => {
+      const pool = WRITING_HINTS.filter((h) => h.id !== prev?.id);
+      return pool[Math.floor(Math.random() * pool.length)] ?? WRITING_HINTS[0];
+    });
+  }
+
+  function handleAttemptBack() {
+    if (isDirty) {
+      setShowUnsavedModal(true);
+      return;
+    }
+    onBack();
+  }
+
+  const photoCount = attachments.filter((a) => a.type === 'photo').length;
+
   async function addPhotoBlob(rawBlob: Blob) {
+    if (isReadOnly) return;
+    const currentPhotoCount = attachments.filter((a) => a.type === 'photo').length;
+    if (currentPhotoCount >= MAX_PHOTOS) {
+      setError(`Maksimal ${MAX_PHOTOS} foto per cerita.`);
+      return;
+    }
+
     setError(null);
     try {
       const compressed = await compressImageBlob(rawBlob, 800, 0.68);
@@ -130,14 +187,32 @@ export function JournalEditor({
   }
 
   async function handleGalleryChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (isReadOnly) return;
     const files = Array.from(e.target.files ?? []);
-    for (const file of files) {
+    const currentPhotos = attachments.filter((a) => a.type === 'photo').length;
+    const remainingSlots = MAX_PHOTOS - currentPhotos;
+
+    if (remainingSlots <= 0) {
+      setError(`Maksimal ${MAX_PHOTOS} foto per cerita.`);
+      e.target.value = '';
+      return;
+    }
+
+    const toAdd = files.slice(0, remainingSlots);
+    if (files.length > remainingSlots) {
+      setError(
+        `Hanya ${remainingSlots} foto yang ditambahkan karena batas maksimal ${MAX_PHOTOS} foto.`
+      );
+    }
+
+    for (const file of toAdd) {
       await addPhotoBlob(file);
     }
     e.target.value = '';
   }
 
   async function handleToggleRecording() {
+    if (isReadOnly) return;
     setError(null);
     if (recording) {
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
@@ -233,6 +308,7 @@ export function JournalEditor({
   }
 
   async function handleSave() {
+    if (isReadOnly) return;
     if (recording) {
       setError('Hentikan rekaman suara dulu sebelum menyimpan.');
       return;
@@ -264,6 +340,8 @@ export function JournalEditor({
         syncStatus: 'pending',
       };
       await onSave(updatedEntry);
+      initialContentRef.current = trimmedContent;
+      initialAttachmentsCountRef.current = attachments.length;
       setSavedNotice('Ceritamu sudah tersimpan.');
     } catch {
       setError('Gagal menyimpan cerita. Silakan coba lagi.');
@@ -289,7 +367,7 @@ export function JournalEditor({
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <button
           type="button"
-          onClick={onBack}
+          onClick={handleAttemptBack}
           className="px-3.5 py-2 min-h-[42px] rounded-xl border border-rule-strong bg-paper text-ink text-xs sm:text-sm font-bold flex items-center gap-1.5 hover:bg-parchment/60 cursor-pointer"
         >
           <ChevronLeftIcon className="w-4 h-4" />
@@ -297,15 +375,6 @@ export function JournalEditor({
         </button>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowHint(true)}
-            className="px-4 py-2 min-h-[42px] rounded-xl bg-terracotta text-white text-xs sm:text-sm font-bold hover:bg-terracotta-hover flex items-center gap-2 cursor-pointer"
-          >
-            <IdeaLampIcon className="w-4 h-4" />
-            <span>Butuh Ide? (Hint)</span>
-          </button>
-
           {parentMode && !isNew && onDelete && !confirmDelete && (
             <button
               type="button"
@@ -346,10 +415,10 @@ export function JournalEditor({
       )}
 
       {/* Main Notebook Writing Sheet */}
-      <div className="notebook-card rounded-2xl overflow-hidden flex flex-1">
+      <div className="notebook-card rounded-2xl overflow-hidden flex flex-1 flex-col sm:flex-row">
         {/* Classic Stitched Notebook Spine */}
         <div
-          className="w-9 sm:w-11 shrink-0 bg-parchment border-r border-rule flex flex-col items-center justify-around py-8"
+          className="w-9 sm:w-11 shrink-0 bg-parchment border-r border-rule flex flex-col items-center justify-around py-8 hidden sm:flex"
           aria-hidden="true"
         >
           <span className="w-3.5 h-3.5 rounded-full bg-cream border border-rule-strong/70" />
@@ -369,12 +438,12 @@ export function JournalEditor({
                 {formatDateLongID(lockedDateKey)}
               </span>
               {isToday ? (
-                <span className="px-2.5 py-0.5 rounded-md bg-parchment text-ink text-xs font-bold border border-rule">
-                  Hari Ini
+                <span className="px-2.5 py-0.5 rounded-md bg-forest/15 text-forest text-xs font-bold border border-forest/30">
+                  Hari Ini (Bisa Ditulis/Diedit)
                 </span>
               ) : (
                 <span className="px-2.5 py-0.5 rounded-md bg-parchment text-walnut text-xs font-bold border border-rule">
-                  Mode Edit Cerita Lama
+                  Kenangan Lalu (Hanya Baca)
                 </span>
               )}
             </div>
@@ -383,79 +452,145 @@ export function JournalEditor({
             </span>
           </div>
 
-          {/* Direct Lined Writing Area (no title field) */}
+          {/* Inline Writing Hint (Displayed automatically on top of writing area, non-popup) */}
+          {!isReadOnly && (
+            <div className="rounded-xl bg-parchment/80 border border-rule-strong p-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-forest/15 text-forest flex items-center justify-center shrink-0">
+                  <IdeaLampIcon className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-extrabold text-terracotta uppercase tracking-wider">
+                    Ide Cerita Hari Ini
+                  </p>
+                  <p className="text-sm font-bold text-ink">
+                    "{currentHint.question}"{' '}
+                    <span className="text-xs font-semibold text-walnut hidden sm:inline">
+                      {currentHint.followUp}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleShuffleHint}
+                className="shrink-0 px-3 py-1.5 min-h-[36px] rounded-lg border border-rule-strong bg-paper text-ink text-xs font-bold hover:bg-cream flex items-center gap-1.5 cursor-pointer"
+                title="Ganti ide cerita secara acak"
+              >
+                <ShuffleCardsIcon className="w-3.5 h-3.5 text-forest" />
+                <span>Ide Lain</span>
+              </button>
+            </div>
+          )}
+
+          {/* Read-only Notice for Past Stories */}
+          {isReadOnly && (
+            <div className="p-3 rounded-xl bg-parchment border border-rule-strong text-walnut text-xs sm:text-sm font-semibold flex items-center gap-2">
+              <span>📖 Cerita hari sebelumnya disimpan sebagai kenangan dan tidak dapat diubah lagi.</span>
+            </div>
+          )}
+
+          {/* Direct Lined Writing Area */}
           <textarea
             ref={bodyRef}
             value={content}
+            readOnly={isReadOnly}
             onChange={(e) => {
+              if (isReadOnly) return;
               setContent(e.target.value);
               setSavedNotice(null);
             }}
             rows={11}
-            placeholder="Ceritakan apa saja yang kamu alami, rasakan, atau pikirkan hari ini..."
+            placeholder={
+              isReadOnly
+                ? 'Cerita ini kosong.'
+                : 'Ceritakan apa saja yang kamu alami, rasakan, atau pikirkan hari ini...'
+            }
             aria-label="Isi cerita buku harian"
-            className="diary-lined-paper w-full flex-1 min-h-[320px] bg-transparent text-ink text-base sm:text-[18px] font-semibold placeholder:text-walnut/55 resize-y focus:outline-none"
+            className={`diary-lined-paper w-full flex-1 min-h-[320px] bg-transparent text-ink text-base sm:text-[18px] font-semibold placeholder:text-walnut/55 focus:outline-none ${
+              isReadOnly ? 'cursor-default resize-none' : 'resize-y'
+            }`}
           />
 
           {/* Attached Photos & Voice Notes */}
           {attachments.length > 0 && (
             <div className="pt-3 border-t border-rule space-y-2">
-              <div className="text-xs font-extrabold uppercase tracking-wide text-walnut">
-                Lampiran Cerita ({attachments.length})
+              <div className="text-xs font-extrabold uppercase tracking-wide text-walnut flex items-center justify-between">
+                <span>Lampiran Cerita ({attachments.length})</span>
+                {photoCount > 0 && (
+                  <span className="text-[11px] font-semibold text-walnut">
+                    {photoCount}/{MAX_PHOTOS} Foto
+                  </span>
+                )}
               </div>
               <MediaGallery
                 attachments={attachments}
-                editable={parentMode}
-                onRemove={parentMode ? handleRemoveAttachment : undefined}
+                editable={parentMode && !isReadOnly}
+                onRemove={parentMode && !isReadOnly ? handleRemoveAttachment : undefined}
               />
             </div>
           )}
 
-          {/* Media Buttons Row */}
-          <div className="pt-3 border-t border-rule flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => galleryInputRef.current?.click()}
-              className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment flex items-center gap-2 cursor-pointer"
-            >
-              <GalleryPhotoIcon className="w-4 h-4 text-forest" />
-              <span>Tambah Foto Galeri</span>
-            </button>
-            <input
-              ref={galleryInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={handleGalleryChange}
-            />
+          {/* Media Buttons Row (Only for Today's Entries) */}
+          {!isReadOnly && (
+            <div className="pt-3 border-t border-rule flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={photoCount >= MAX_PHOTOS}
+                className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment disabled:opacity-45 flex items-center gap-2 cursor-pointer"
+                title={photoCount >= MAX_PHOTOS ? `Sudah mencapai batas maksimal ${MAX_PHOTOS} foto` : 'Tambah foto dari galeri'}
+              >
+                <GalleryPhotoIcon className="w-4 h-4 text-forest" />
+                <span>
+                  {photoCount >= MAX_PHOTOS
+                    ? `Foto Penuh (${photoCount}/${MAX_PHOTOS})`
+                    : `Tambah Foto Galeri (${photoCount}/${MAX_PHOTOS})`}
+                </span>
+              </button>
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleGalleryChange}
+              />
 
-            <button
-              type="button"
-              onClick={() => setShowCamera(true)}
-              className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment flex items-center gap-2 cursor-pointer"
-            >
-              <CameraLensIcon className="w-4 h-4 text-forest" />
-              <span>Kamera Selfie</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (photoCount >= MAX_PHOTOS) {
+                    setError(`Maksimal ${MAX_PHOTOS} foto per cerita.`);
+                    return;
+                  }
+                  setShowCamera(true);
+                }}
+                disabled={photoCount >= MAX_PHOTOS}
+                className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment disabled:opacity-45 flex items-center gap-2 cursor-pointer"
+              >
+                <CameraLensIcon className="w-4 h-4 text-forest" />
+                <span>Kamera Selfie</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={handleToggleRecording}
-              className={`px-3.5 py-2.5 min-h-[44px] rounded-xl border text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer ${
-                recording
-                  ? 'bg-danger text-white border-danger'
-                  : 'border-rule-strong bg-cream text-ink hover:bg-parchment'
-              }`}
-            >
-              <VoiceMicIcon className="w-4 h-4" />
-              <span>
-                {recording
-                  ? `Hentikan Rekaman (${formatDuration(recordSeconds)})`
-                  : 'Rekam Voice Note'}
-              </span>
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={handleToggleRecording}
+                className={`px-3.5 py-2.5 min-h-[44px] rounded-xl border text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer ${
+                  recording
+                    ? 'bg-danger text-white border-danger'
+                    : 'border-rule-strong bg-cream text-ink hover:bg-parchment'
+                }`}
+              >
+                <VoiceMicIcon className="w-4 h-4" />
+                <span>
+                  {recording
+                    ? `Hentikan Rekaman (${formatDuration(recordSeconds)})`
+                    : 'Rekam Voice Note'}
+                </span>
+              </button>
+            </div>
+          )}
 
           {/* Feedback Banners */}
           {error && (
@@ -474,39 +609,78 @@ export function JournalEditor({
           {/* Bottom Save Bar */}
           <div className="pt-4 border-t border-rule flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs font-semibold text-walnut">
-              Tips keyboard: tekan Ctrl + S untuk menyimpan dengan cepat.
+              {!isReadOnly
+                ? 'Tips keyboard: tekan Ctrl + S untuk menyimpan dengan cepat.'
+                : 'Membaca kenangan cerita masa lalu.'}
             </span>
 
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={onBack}
+                onClick={handleAttemptBack}
                 className="px-4 py-3 min-h-[46px] rounded-xl border border-rule bg-paper text-walnut text-sm font-bold hover:border-rule-strong cursor-pointer"
               >
                 Tutup Halaman
               </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || recording}
-                className="px-7 py-3 min-h-[46px] rounded-xl bg-forest text-white text-sm sm:text-base font-extrabold hover:bg-forest-hover disabled:opacity-45 flex items-center gap-2 cursor-pointer"
-              >
-                <CheckMarkIcon className="w-5 h-5" />
-                <span>{saving ? 'Menyimpan...' : 'Simpan'}</span>
-              </button>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || recording}
+                  className="px-7 py-3 min-h-[46px] rounded-xl bg-forest text-white text-sm sm:text-base font-extrabold hover:bg-forest-hover disabled:opacity-45 flex items-center gap-2 cursor-pointer"
+                >
+                  <CheckMarkIcon className="w-5 h-5" />
+                  <span>{saving ? 'Menyimpan...' : 'Simpan'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {showHint && (
-        <HintModal
-          childName={child.nickname || child.name}
-          onClose={() => {
-            setShowHint(false);
-            bodyRef.current?.focus();
-          }}
-        />
+      {/* Unsaved Changes Confirmation Modal */}
+      {showUnsavedModal && (
+        <div className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="notebook-card rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-rule-strong">
+            <h3 className="font-display text-lg font-bold text-ink">
+              Cerita Belum Disimpan
+            </h3>
+            <p className="text-sm font-semibold text-walnut leading-relaxed">
+              Ada cerita atau foto yang belum kamu simpan. Apakah kamu yakin ingin keluar tanpa menyimpan? Tulisan yang belum disimpan akan hilang.
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowUnsavedModal(false)}
+                className="px-4 py-2.5 min-h-[42px] rounded-xl border border-rule-strong bg-paper text-ink text-xs sm:text-sm font-bold hover:bg-cream cursor-pointer"
+              >
+                Tetap Menulis
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnsavedModal(false);
+                  onBack();
+                }}
+                className="px-4 py-2.5 min-h-[42px] rounded-xl border border-danger/40 bg-white text-danger text-xs sm:text-sm font-bold hover:bg-[#FDF2F2] cursor-pointer"
+              >
+                Buang Perubahan
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowUnsavedModal(false);
+                  await handleSave();
+                  onBack();
+                }}
+                disabled={saving}
+                className="px-5 py-2.5 min-h-[42px] rounded-xl bg-forest text-white text-xs sm:text-sm font-bold hover:bg-forest-hover cursor-pointer"
+              >
+                Simpan &amp; Keluar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showCamera && (

@@ -49,6 +49,28 @@ export interface JournalEntry {
   syncStatus: SyncStatus;
 }
 
+export interface StoryChapter {
+  id: string;
+  title: string;
+  content: string;
+  order: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreativeStory {
+  id: string;
+  childId: string;
+  title: string;
+  synopsis: string;
+  coverTone: AccentTone;
+  chapters: StoryChapter[];
+  createdAt: number;
+  updatedAt: number;
+  deleted?: boolean;
+  syncStatus: SyncStatus;
+}
+
 export interface FirebaseConfigData {
   apiKey: string;
   authDomain: string;

@@ -95,6 +95,9 @@ export function ParentModeModal({ onSuccess, onClose }: ParentModeModalProps) {
                 {showPassword ? 'Sembunyi' : 'Lihat'}
               </button>
             </div>
+            <p className="text-xs font-semibold text-walnut pt-0.5">
+              Petunjuk kata sandi: <span className="font-bold text-ink">byu miqdad</span>
+            </p>
           </label>
 
           {error && (

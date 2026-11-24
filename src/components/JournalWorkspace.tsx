@@ -29,6 +29,7 @@ interface JournalWorkspaceProps {
   onSaveEntry: (entry: JournalEntry) => Promise<void>;
   onDeleteEntry: (entry: JournalEntry) => Promise<void>;
   onSwitchAccount: () => void;
+  onOpenStorybook?: () => void;
   onEditProfile: () => void;
   onOpenExport: () => void;
   onToggleParentMode: () => void;
@@ -49,6 +50,7 @@ export function JournalWorkspace({
   onSaveEntry,
   onDeleteEntry,
   onSwitchAccount,
+  onOpenStorybook,
   onEditProfile,
   onOpenExport,
   onToggleParentMode,
@@ -208,6 +210,16 @@ export function JournalWorkspace({
               </button>
             </div>
           </div>
+
+          {onOpenStorybook && (
+            <button
+              type="button"
+              onClick={onOpenStorybook}
+              className="w-full py-2 px-3 min-h-[38px] rounded-xl border border-rule-strong bg-cream hover:bg-parchment text-ink text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>📖 Buka Buku Cerita (Cerpen &amp; Novel)</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -569,7 +581,11 @@ export function JournalWorkspace({
                               className="px-3.5 py-2 min-h-[40px] rounded-xl border border-rule-strong bg-cream text-ink text-xs font-bold hover:bg-parchment flex items-center gap-1.5 cursor-pointer"
                             >
                               <PencilNibIcon className="w-3.5 h-3.5" />
-                              <span>Buka / Edit</span>
+                              <span>
+                                {entry.dateKey === todayKey
+                                  ? 'Edit Cerita'
+                                  : 'Buka Cerita'}
+                              </span>
                             </button>
                             {parentMode && !isDeleting && (
                               <button
