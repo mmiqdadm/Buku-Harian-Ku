@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AccentTone, ChildProfile, CreativeStory, StoryChapter, SyncStateSummary } from '../types';
-import { createId } from '../lib/media';
+import type {
+  AccentTone,
+  ChildProfile,
+  CreativeStory,
+  MediaAttachment,
+  StoryChapter,
+  SyncStateSummary,
+} from '../types';
+import { compressImageBlob, createId } from '../lib/media';
+import { deleteMediaBlobLocal, saveMediaBlobLocal } from '../lib/db';
 import { formatDateLongID } from '../lib/date';
+import { CameraModal } from './CameraModal';
+import { MediaGallery } from './MediaPreview';
 import {
   BookCoverIcon,
+  CameraLensIcon,
   CheckMarkIcon,
+  GalleryPhotoIcon,
   LockShieldIcon,
   PlusMarkIcon,
   SwitchUsersIcon,
@@ -44,6 +56,7 @@ function createInitialChapter(): StoryChapter {
     title: 'Bab 1: Awal Mula',
     content: '',
     order: 1,
+    attachments: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -82,6 +95,11 @@ export function StoryWorkspace({
   const [coverTone, setCoverTone] = useState<AccentTone>(child.accentTone);
   const [chapters, setChapters] = useState<StoryChapter[]>([]);
 
+  // Camera & Gallery states
+  const MAX_CHAPTER_PHOTOS = 5;
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+
   // Original states for dirty tracking
   const originalStateRef = useRef<{
     title: string;
@@ -117,7 +135,14 @@ export function StoryWorkspace({
     for (let i = 0; i < chapters.length; i++) {
       const c = chapters[i];
       const oc = orig.chapters[i];
-      if (!oc || c.title !== oc.title || c.content !== oc.content) return true;
+      if (
+        !oc ||
+        c.title !== oc.title ||
+        c.content !== oc.content ||
+        (c.attachments?.length || 0) !== (oc.attachments?.length || 0)
+      ) {
+        return true;
+      }
     }
     return false;
   }, [selectedStoryId, title, synopsis, coverTone, chapters]);
@@ -190,6 +215,10 @@ export function StoryWorkspace({
     [chapters, selectedChapterId]
   );
 
+  const activeChapterPhotos = useMemo(() => {
+    return activeChapter?.attachments?.filter((a) => a.type === 'photo') || [];
+  }, [activeChapter?.attachments]);
+
   function executeWithDirtyCheck(action: () => void) {
     if (isDirty) {
       setPendingSwitchAction(() => action);
@@ -236,6 +265,7 @@ export function StoryWorkspace({
       title: `Bab ${nextOrder}: Judul Bab`,
       content: '',
       order: nextOrder,
+      attachments: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -274,6 +304,81 @@ export function StoryWorkspace({
     setSavedNotice(null);
   }
 
+  async function addChapterPhotoBlob(rawBlob: Blob) {
+    if (!activeChapter) return;
+    const currentCount = activeChapter.attachments?.filter((a) => a.type === 'photo').length || 0;
+    if (currentCount >= MAX_CHAPTER_PHOTOS) {
+      setError(`Maksimal ${MAX_CHAPTER_PHOTOS} foto tiap bab.`);
+      return;
+    }
+    setError(null);
+    try {
+      const compressed = await compressImageBlob(rawBlob, 800, 0.68);
+      const id = createId('foto');
+      await saveMediaBlobLocal(id, activeChapter.id, compressed);
+      const att: MediaAttachment = {
+        id,
+        type: 'photo',
+        mimeType: compressed.type || 'image/jpeg',
+        remoteSynced: false,
+        createdAt: Date.now(),
+      };
+      setChapters((prev) =>
+        prev.map((c) =>
+          c.id === activeChapter.id
+            ? { ...c, attachments: [...(c.attachments || []), att] }
+            : c
+        )
+      );
+      setSavedNotice(null);
+    } catch {
+      setError('Foto gagal ditambahkan. Coba pilih gambar lain.');
+    }
+  }
+
+  async function handleChapterGalleryChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!activeChapter) return;
+    const files = Array.from(e.target.files ?? []);
+    const currentCount = activeChapter.attachments?.filter((a) => a.type === 'photo').length || 0;
+    const remainingSlots = MAX_CHAPTER_PHOTOS - currentCount;
+
+    if (remainingSlots <= 0) {
+      setError(`Maksimal ${MAX_CHAPTER_PHOTOS} foto tiap bab.`);
+      e.target.value = '';
+      return;
+    }
+
+    const toAdd = files.slice(0, remainingSlots);
+    if (files.length > remainingSlots) {
+      setError(`Hanya ${remainingSlots} foto yang ditambahkan karena batas maksimal ${MAX_CHAPTER_PHOTOS} foto.`);
+    }
+
+    for (const file of toAdd) {
+      await addChapterPhotoBlob(file);
+    }
+    e.target.value = '';
+  }
+
+  async function handleRemoveChapterAttachment(attId: string) {
+    if (!parentMode || !activeChapter) return;
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.id === activeChapter.id
+          ? {
+              ...c,
+              attachments: (c.attachments || []).filter((a) => a.id !== attId),
+            }
+          : c
+      )
+    );
+    try {
+      await deleteMediaBlobLocal(attId);
+    } catch {
+      // ignore
+    }
+    setSavedNotice(null);
+  }
+
   async function handleSaveCurrentStory(): Promise<void> {
     if (!selectedStoryId) return;
     setSaving(true);
@@ -291,6 +396,7 @@ export function StoryWorkspace({
       chapters: chapters.map((c) => ({
         ...c,
         title: c.title.trim() || `Bab ${c.order}`,
+        attachments: c.attachments || [],
         updatedAt: now,
       })),
       createdAt: activeStory?.createdAt ?? now,
@@ -752,6 +858,69 @@ export function StoryWorkspace({
                       className="diary-lined-paper w-full flex-1 min-h-[360px] bg-transparent text-ink text-base sm:text-[18px] font-semibold leading-relaxed placeholder:text-walnut/50 resize-y focus:outline-none"
                     />
 
+                    {/* Attached Photos in Chapter */}
+                    {activeChapter.attachments && activeChapter.attachments.length > 0 && (
+                      <div className="pt-3 border-t border-rule space-y-2">
+                        <div className="text-xs font-extrabold uppercase tracking-wide text-walnut flex items-center justify-between">
+                          <span>Foto / Gambar Bab Ini ({activeChapter.attachments.length})</span>
+                          <span className="text-[11px] font-semibold text-walnut">
+                            {activeChapterPhotos.length}/{MAX_CHAPTER_PHOTOS} Foto
+                          </span>
+                        </div>
+                        <MediaGallery
+                          attachments={activeChapter.attachments}
+                          editable={parentMode}
+                          onRemove={parentMode ? handleRemoveChapterAttachment : undefined}
+                        />
+                      </div>
+                    )}
+
+                    {/* Media Buttons Row for Chapter */}
+                    <div className="pt-3 border-t border-rule flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => galleryInputRef.current?.click()}
+                        disabled={activeChapterPhotos.length >= MAX_CHAPTER_PHOTOS}
+                        className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment disabled:opacity-45 flex items-center gap-2 cursor-pointer"
+                        title={
+                          activeChapterPhotos.length >= MAX_CHAPTER_PHOTOS
+                            ? `Maksimal ${MAX_CHAPTER_PHOTOS} foto per bab`
+                            : 'Tambah foto dari galeri'
+                        }
+                      >
+                        <GalleryPhotoIcon className="w-4 h-4 text-forest" />
+                        <span>
+                          {activeChapterPhotos.length >= MAX_CHAPTER_PHOTOS
+                            ? `Foto Penuh (${activeChapterPhotos.length}/${MAX_CHAPTER_PHOTOS})`
+                            : `Tambah Foto Galeri (${activeChapterPhotos.length}/${MAX_CHAPTER_PHOTOS})`}
+                        </span>
+                      </button>
+                      <input
+                        ref={galleryInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={handleChapterGalleryChange}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeChapterPhotos.length >= MAX_CHAPTER_PHOTOS) {
+                            setError(`Maksimal ${MAX_CHAPTER_PHOTOS} foto tiap bab.`);
+                            return;
+                          }
+                          setShowCamera(true);
+                        }}
+                        disabled={activeChapterPhotos.length >= MAX_CHAPTER_PHOTOS}
+                        className="px-3.5 py-2.5 min-h-[44px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-parchment disabled:opacity-45 flex items-center gap-2 cursor-pointer"
+                      >
+                        <CameraLensIcon className="w-4 h-4 text-forest" />
+                        <span>Kamera Selfie</span>
+                      </button>
+                    </div>
+
                     {/* Word and Character Count Helper */}
                     <div className="pt-4 border-t border-rule flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-walnut">
                       <span>
@@ -805,6 +974,18 @@ export function StoryWorkspace({
           </div>
         )}
       </main>
+
+      {/* Camera Selfie Modal */}
+      {showCamera && (
+        <CameraModal
+          title="Ambil Foto untuk Bab Cerita"
+          onCapture={(blob) => {
+            setShowCamera(false);
+            void addChapterPhotoBlob(blob);
+          }}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
 
       {/* Unsaved Changes Confirmation Modal */}
       {pendingSwitchAction && (

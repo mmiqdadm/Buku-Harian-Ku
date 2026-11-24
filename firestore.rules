@@ -108,6 +108,7 @@ rules_version = '2';
 //   - title: string (required, 0..200 chars)
 //   - content: string (required, 0..50000 chars)
 //   - order: int (required, 1..50)
+//   - attachments: list of maps (optional, size <= 5; items conform to MediaAttachment)
 //   - createdAt: int or float (required, positive)
 //   - updatedAt: int or float (required, positive)
 //
@@ -356,7 +357,7 @@ service cloud.firestore {
     function isValidChapter(ch) {
       return ch is map &&
         hasOnlyAllowedFields(ch, [
-          'id', 'title', 'content', 'order', 'createdAt', 'updatedAt'
+          'id', 'title', 'content', 'order', 'attachments', 'createdAt', 'updatedAt'
         ]) &&
         hasRequiredFields(ch, [
           'id', 'title', 'content', 'order', 'createdAt', 'updatedAt'
@@ -365,6 +366,7 @@ service cloud.firestore {
         isValidString(ch.title, 0, 200) &&
         isValidString(ch.content, 0, 50000) &&
         ch.order is int && ch.order >= 1 && ch.order <= 50 &&
+        (!('attachments' in ch) || (isValidList(ch.attachments, 5) && (ch.attachments.size() == 0 || isValidAttachment(ch.attachments[0])))) &&
         isPositiveNumber(ch.createdAt) &&
         isPositiveNumber(ch.updatedAt);
     }

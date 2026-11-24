@@ -54,6 +54,7 @@ export interface StoryChapter {
   title: string;
   content: string;
   order: number;
+  attachments?: MediaAttachment[];
   createdAt: number;
   updatedAt: number;
 }

@@ -12,6 +12,7 @@ import type {
   CreativeStory,
   JournalEntry,
   MediaAttachment,
+  StoryChapter,
   SyncStateSummary,
 } from '../types';
 import {
@@ -526,9 +527,106 @@ export async function syncWithCloud(): Promise<SyncStateSummary> {
           !remote ||
           story.updatedAt > (remote?.updatedAt ?? 0)
         ) {
-          const cleanStory: CreativeStory = { ...story, syncStatus: 'synced' };
-          await setDoc(doc(db, STORIES_COL, story.id), stripUndefined(cleanStory));
-          await saveStoryLocal(cleanStory);
+          if (story.deleted) {
+            const cleanStory: CreativeStory = {
+              ...story,
+              chapters: (story.chapters || []).map((ch) => ({
+                ...ch,
+                attachments: [],
+              })),
+              syncStatus: 'synced',
+            };
+            await setDoc(
+              doc(db, STORIES_COL, story.id),
+              stripUndefined({
+                ...cleanStory,
+                chapters: cleanStory.chapters.map((ch) =>
+                  stripUndefined({
+                    id: ch.id,
+                    title: ch.title,
+                    content: ch.content,
+                    order: ch.order,
+                    createdAt: ch.createdAt,
+                    updatedAt: ch.updatedAt,
+                    attachments: [],
+                  })
+                ),
+              })
+            );
+            for (const ch of story.chapters || []) {
+              if (ch.attachments) {
+                for (const att of ch.attachments) {
+                  await deleteRemoteMedia(att.id);
+                }
+              }
+            }
+            await saveStoryLocal(cleanStory);
+          } else {
+            const remoteAttIds = new Set<string>();
+            if (remote?.chapters) {
+              for (const rCh of remote.chapters) {
+                if (rCh.attachments) {
+                  for (const att of rCh.attachments) {
+                    remoteAttIds.add(att.id);
+                  }
+                }
+              }
+            }
+
+            const localAttIds = new Set<string>();
+            const syncedChapters: StoryChapter[] = [];
+
+            for (const ch of story.chapters || []) {
+              const syncedAttachments: MediaAttachment[] = [];
+              if (ch.attachments && ch.attachments.length > 0) {
+                for (const att of ch.attachments) {
+                  localAttIds.add(att.id);
+                  if (!att.remoteSynced) {
+                    const pushed = await pushMediaAttachment(ch.id, att);
+                    syncedAttachments.push(pushed);
+                  } else {
+                    syncedAttachments.push(att);
+                  }
+                }
+              }
+
+              syncedChapters.push({
+                ...ch,
+                attachments: syncedAttachments,
+              });
+            }
+
+            for (const rId of remoteAttIds) {
+              if (!localAttIds.has(rId)) {
+                await deleteRemoteMedia(rId);
+              }
+            }
+
+            const cleanStory: CreativeStory = {
+              ...story,
+              chapters: syncedChapters,
+              syncStatus: 'synced',
+            };
+
+            await setDoc(
+              doc(db, STORIES_COL, story.id),
+              stripUndefined({
+                ...cleanStory,
+                chapters: syncedChapters.map((ch) =>
+                  stripUndefined({
+                    id: ch.id,
+                    title: ch.title,
+                    content: ch.content,
+                    order: ch.order,
+                    createdAt: ch.createdAt,
+                    updatedAt: ch.updatedAt,
+                    attachments: ch.attachments ? ch.attachments.map(serializeAttachment) : [],
+                  })
+                ),
+              })
+            );
+            await saveStoryLocal(cleanStory);
+          }
         }
       }
 
