@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { ChildProfile, CreativeStory, JournalEntry, AccentTone } from '../types';
 import { formatDateLongID, formatDateShortID, formatDuration } from './date';
-import { blobToDataUrl, getImageDimensions } from './media';
+import { ensureJpegDataUrl, getImageDimensions } from './media';
 import { ensureMediaBlobAvailable } from './sync';
 import { filterEntriesByDateRange } from './exportWord';
 
@@ -144,7 +144,7 @@ export async function exportDiaryToPdf(options: ExportDiaryPdfOptions): Promise<
 
       try {
         const [dataUrl, dims] = await Promise.all([
-          blobToDataUrl(blob),
+          ensureJpegDataUrl(blob),
           getImageDimensions(blob),
         ]);
 
@@ -358,7 +358,7 @@ export async function exportStoryToPdf(story: CreativeStory, author: ChildProfil
 
       try {
         const [dataUrl, dims] = await Promise.all([
-          blobToDataUrl(blob),
+          ensureJpegDataUrl(blob),
           getImageDimensions(blob),
         ]);
 

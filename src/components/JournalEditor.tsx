@@ -169,13 +169,13 @@ export function JournalEditor({
 
     setError(null);
     try {
-      const compressed = await compressImageBlob(rawBlob, 800, 0.68);
+      const compressed = await compressImageBlob(rawBlob, 720, 0.65);
       const id = createId('foto');
       await saveMediaBlobLocal(id, entryIdRef.current, compressed);
       const att: MediaAttachment = {
         id,
         type: 'photo',
-        mimeType: compressed.type || 'image/jpeg',
+        mimeType: compressed.type || 'image/webp',
         remoteSynced: false,
         createdAt: Date.now(),
       };

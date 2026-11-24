@@ -11,7 +11,7 @@ import {
 } from 'docx';
 import type { AccentTone, ChildProfile, CreativeStory, JournalEntry } from '../types';
 import { formatDateLongID, formatDateShortID, formatDuration } from './date';
-import { blobToArrayBuffer, getImageDimensions } from './media';
+import { ensureDocxImageBuffer, getImageDimensions } from './media';
 import { ensureMediaBlobAvailable } from './sync';
 
 const TONE_COLOR: Record<AccentTone, string> = {
@@ -39,13 +39,6 @@ export function filterEntriesByDateRange(
       if (a.dateKey !== b.dateKey) return a.dateKey.localeCompare(b.dateKey);
       return a.createdAt - b.createdAt;
     });
-}
-
-function getDocxImageType(mimeType: string): 'jpg' | 'png' | 'gif' | 'bmp' {
-  if (mimeType.includes('png')) return 'png';
-  if (mimeType.includes('gif')) return 'gif';
-  if (mimeType.includes('bmp')) return 'bmp';
-  return 'jpg';
 }
 
 export async function exportDiaryToWord(options: ExportOptions): Promise<string> {
@@ -171,8 +164,8 @@ export async function exportDiaryToWord(options: ExportOptions): Promise<string>
       const blob = await ensureMediaBlobAvailable(photo);
       if (!blob) continue;
       try {
-        const [buffer, dims] = await Promise.all([
-          blobToArrayBuffer(blob),
+        const [{ buffer, type: docxType }, dims] = await Promise.all([
+          ensureDocxImageBuffer(blob),
           getImageDimensions(blob),
         ]);
         const maxW = 460;
@@ -186,7 +179,7 @@ export async function exportDiaryToWord(options: ExportOptions): Promise<string>
             children: [
               new ImageRun({
                 data: new Uint8Array(buffer),
-                type: getDocxImageType(photo.mimeType),
+                type: docxType,
                 transformation: { width, height },
               }),
             ],
@@ -382,8 +375,8 @@ export async function exportStoryToWord(
       const blob = await ensureMediaBlobAvailable(photo);
       if (!blob) continue;
       try {
-        const [buffer, dims] = await Promise.all([
-          blobToArrayBuffer(blob),
+        const [{ buffer, type: docxType }, dims] = await Promise.all([
+          ensureDocxImageBuffer(blob),
           getImageDimensions(blob),
         ]);
         const maxW = 460;
@@ -397,7 +390,7 @@ export async function exportStoryToWord(
             children: [
               new ImageRun({
                 data: new Uint8Array(buffer),
-                type: getDocxImageType(photo.mimeType),
+                type: docxType,
                 transformation: { width, height },
               }),
             ],
