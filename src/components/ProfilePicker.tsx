@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { AccentTone, ChildProfile } from '../types';
+import type { AccentTone, ChildProfile, SyncStateSummary } from '../types';
 import { formatDateLongID, getTodayDateKey } from '../lib/date';
 import {
   BookCoverIcon,
@@ -14,6 +14,7 @@ interface ProfilePickerProps {
   profiles: ChildProfile[];
   entryCounts: Record<string, number>;
   parentMode: boolean;
+  syncState?: SyncStateSummary;
   onSelectChild: (childId: string) => void;
   onEditProfile: (profile: ChildProfile) => void;
   onAddProfile: () => void;
@@ -31,6 +32,7 @@ export function ProfilePicker({
   profiles,
   entryCounts,
   parentMode,
+  syncState,
   onSelectChild,
   onEditProfile,
   onAddProfile,
@@ -245,7 +247,20 @@ export function ProfilePicker({
 
       {/* Quiet Footer */}
       <footer className="max-w-6xl w-full mx-auto pt-4 border-t border-rule flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-walnut">
-        <span>Tersimpan otomatis di perangkat ini dan sinkron ke cloud saat terhubung internet.</span>
+        <span className="flex items-center gap-1.5">
+          {syncState?.configured && syncState.online && (
+            <span className="w-1.5 h-1.5 rounded-full bg-forest shrink-0 animate-pulse" />
+          )}
+          <span>
+            {!syncState?.configured
+              ? 'Tersimpan di perangkat ini'
+              : !syncState.online
+                ? 'Mode offline (tersimpan aman di perangkat ini)'
+                : syncState.syncing
+                  ? 'Menyelaraskan ke cloud...'
+                  : 'Tersinkron realtime ke cloud'}
+          </span>
+        </span>
         <span>Dirancang untuk layar mendatar (tablet dengan keyboard &amp; laptop).</span>
       </footer>
     </div>

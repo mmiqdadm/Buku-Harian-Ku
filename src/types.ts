@@ -56,6 +56,7 @@ export interface FirebaseConfigData {
   storageBucket: string;
   messagingSenderId: string;
   appId: string;
+  databaseId?: string;
 }
 
 export interface SyncStateSummary {

@@ -1,7 +1,10 @@
 {
-  "firestore": {
-    "rules": "firestore.rules"
-  },
+  "firestore": [
+    {
+      "database": "ai-studio-sekeluargasesurg-d91da7da-8311-400f-ba70-62abe04c9aad",
+      "rules": "firestore.rules"
+    }
+  ],
   "hosting": {
     "public": "dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],

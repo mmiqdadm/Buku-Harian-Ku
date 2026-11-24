@@ -5,9 +5,11 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import type { ChildProfile, JournalEntry, MediaAttachment, SyncStateSummary } from '../types';
 import {
+  getDB,
   getAllEntries,
   getAllProfiles,
   getEntryById,
@@ -181,6 +183,132 @@ function serializeAttachment(att: MediaAttachment): Record<string, unknown> {
 }
 
 /**
+ * Realtime Sync Callbacks & Subscription
+ */
+export interface RealtimeSyncCallbacks {
+  onProfilesUpdated?: () => void;
+  onEntriesUpdated?: () => void;
+  onStatusChanged?: (summary: SyncStateSummary) => void;
+  onError?: (error: string) => void;
+}
+
+export function subscribeToRealtimeSync(callbacks: RealtimeSyncCallbacks): () => void {
+  const db = getFirestoreInstance();
+  if (!db) {
+    return () => {};
+  }
+
+  let isInitialProfiles = true;
+  let isInitialEntries = true;
+
+  const unsubProfiles = onSnapshot(
+    collection(db, PROFILES_COL),
+    async (snapshot) => {
+      try {
+        let hasChanges = false;
+        const idb = await getDB();
+
+        for (const change of snapshot.docChanges()) {
+          if (change.type === 'added' || change.type === 'modified') {
+            const remote = change.doc.data() as ChildProfile;
+            const local = await idb.get('profiles', remote.id);
+            if (
+              !local ||
+              remote.updatedAt > local.updatedAt ||
+              (remote.updatedAt === local.updatedAt && local.syncStatus !== 'synced')
+            ) {
+              await saveProfileLocal({ ...remote, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          } else if (change.type === 'removed') {
+            const local = await idb.get('profiles', change.doc.id);
+            if (local && !local.deleted) {
+              await saveProfileLocal({ ...local, deleted: true, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          }
+        }
+
+        if (hasChanges || isInitialProfiles) {
+          isInitialProfiles = false;
+          await setMetaValue(LAST_SYNC_META_KEY, Date.now());
+          callbacks.onProfilesUpdated?.();
+        }
+
+        const summary = await getSyncSummary(false, null);
+        callbacks.onStatusChanged?.(summary);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Gagal memproses pembaruan profil realtime';
+        callbacks.onError?.(msg);
+      }
+    },
+    (err) => {
+      const msg = err.message || 'Koneksi realtime profil terputus';
+      void getSyncSummary(false, msg).then((s) => callbacks.onStatusChanged?.(s));
+      callbacks.onError?.(msg);
+    }
+  );
+
+  const unsubEntries = onSnapshot(
+    collection(db, ENTRIES_COL),
+    async (snapshot) => {
+      try {
+        let hasChanges = false;
+
+        for (const change of snapshot.docChanges()) {
+          if (change.type === 'added' || change.type === 'modified') {
+            const remote = change.doc.data() as JournalEntry;
+            const local = await getEntryById(remote.id);
+            if (
+              !local ||
+              remote.updatedAt > local.updatedAt ||
+              (remote.updatedAt === local.updatedAt && local.syncStatus !== 'synced')
+            ) {
+              await saveEntryLocal({ ...remote, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          } else if (change.type === 'removed') {
+            const local = await getEntryById(change.doc.id);
+            if (local && !local.deleted) {
+              await saveEntryLocal({ ...local, deleted: true, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          }
+        }
+
+        if (hasChanges || isInitialEntries) {
+          isInitialEntries = false;
+          await setMetaValue(LAST_SYNC_META_KEY, Date.now());
+          callbacks.onEntriesUpdated?.();
+        }
+
+        const summary = await getSyncSummary(false, null);
+        callbacks.onStatusChanged?.(summary);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Gagal memproses pembaruan cerita realtime';
+        callbacks.onError?.(msg);
+      }
+    },
+    (err) => {
+      const msg = err.message || 'Koneksi realtime cerita terputus';
+      void getSyncSummary(false, msg).then((s) => callbacks.onStatusChanged?.(s));
+      callbacks.onError?.(msg);
+    }
+  );
+
+  return () => {
+    unsubProfiles();
+    unsubEntries();
+  };
+}
+
+/**
  * Push-on-Save & Automatic Online Sync:
  * 1) Fetches remote profiles & entries first so a freshly opened device (like laptop)
  *    never overwrites newer cloud data with empty seed defaults.
@@ -222,12 +350,16 @@ export async function syncWithCloud(): Promise<SyncStateSummary> {
 
       for (const profile of localProfiles) {
         const remote = remoteProfileMap.get(profile.id);
-        if (remote && remote.updatedAt >= profile.updatedAt) {
-          // Remote is newer or equal; adopt remote
+        if (remote && remote.updatedAt > profile.updatedAt) {
+          // Remote is strictly newer; adopt remote
           await saveProfileLocal({ ...remote, syncStatus: 'synced' });
           continue;
         }
-        if (profile.syncStatus !== 'synced' || !remote) {
+        if (
+          profile.syncStatus !== 'synced' ||
+          !remote ||
+          profile.updatedAt > (remote?.updatedAt ?? 0)
+        ) {
           const cleanProfile: ChildProfile = { ...profile, syncStatus: 'synced' };
           await setDoc(doc(db, PROFILES_COL, profile.id), stripUndefined(cleanProfile));
           await saveProfileLocal(cleanProfile);
@@ -245,11 +377,15 @@ export async function syncWithCloud(): Promise<SyncStateSummary> {
       const localEntries = await getAllEntries(true);
       for (const entry of localEntries) {
         const remote = remoteEntryMap.get(entry.id);
-        if (remote && remote.updatedAt >= entry.updatedAt) {
+        if (remote && remote.updatedAt > entry.updatedAt) {
           await saveEntryLocal({ ...remote, syncStatus: 'synced' });
           continue;
         }
-        if (entry.syncStatus !== 'synced' || !remote) {
+        if (
+          entry.syncStatus !== 'synced' ||
+          !remote ||
+          entry.updatedAt > (remote?.updatedAt ?? 0)
+        ) {
           if (entry.deleted) {
             await setDoc(
               doc(db, ENTRIES_COL, entry.id),

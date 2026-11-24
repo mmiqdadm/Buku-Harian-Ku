@@ -141,6 +141,9 @@ export function JournalWorkspace({
   const activeMonthParts =
     selectedMonth === 'ALL' ? null : splitMonthKeyID(selectedMonth);
 
+  const isRealtime =
+    syncState.configured && syncState.online && !syncState.syncing;
+
   const quietSyncText = !syncState.configured
     ? 'Tersimpan di perangkat'
     : !syncState.online
@@ -148,8 +151,8 @@ export function JournalWorkspace({
         ? `Offline (${syncState.pendingCount} cerita menunggu internet)`
         : 'Offline (tersimpan aman di perangkat)'
       : syncState.syncing
-        ? 'Mengunggah ke cloud...'
-        : 'Tersimpan otomatis ke cloud';
+        ? 'Menyelaraskan ke cloud...'
+        : 'Tersinkron realtime ke cloud';
 
   return (
     <div className="min-h-screen bg-cream flex flex-row">
@@ -332,8 +335,11 @@ export function JournalWorkspace({
             </span>
           </button>
 
-          <p className="text-[11px] font-bold text-walnut text-center pt-0.5">
-            {quietSyncText}
+          <p className="text-[11px] font-bold text-walnut text-center pt-0.5 flex items-center justify-center gap-1.5">
+            {isRealtime && (
+              <span className="w-1.5 h-1.5 rounded-full bg-forest shrink-0 animate-pulse" />
+            )}
+            <span>{quietSyncText}</span>
           </p>
         </div>
       </aside>

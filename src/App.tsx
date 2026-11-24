@@ -9,7 +9,7 @@ import {
   saveProfileLocal,
 } from './lib/db';
 import { isFirebaseConfigured } from './lib/firebase';
-import { getSyncSummary, syncWithCloud } from './lib/sync';
+import { getSyncSummary, subscribeToRealtimeSync, syncWithCloud } from './lib/sync';
 import { ProfilePicker } from './components/ProfilePicker';
 import { ProfileModal } from './components/ProfileModal';
 import { JournalWorkspace } from './components/JournalWorkspace';
@@ -69,9 +69,10 @@ export function App() {
     setSyncState(summary);
   }, [reloadLocalData]);
 
-  // Initial load from IndexedDB + automatic background cloud sync when online
+  // Initial load from IndexedDB + realtime sync subscription + background cloud push
   useEffect(() => {
     let active = true;
+    let unsubscribeRealtime: (() => void) | null = null;
 
     async function init() {
       try {
@@ -83,6 +84,23 @@ export function App() {
         setSyncState(initialSummary);
         setLoading(false);
 
+        // Start listening to realtime Firestore updates immediately
+        if (initialSummary.configured) {
+          unsubscribeRealtime = subscribeToRealtimeSync({
+            onProfilesUpdated: () => {
+              if (active) void reloadLocalData();
+            },
+            onEntriesUpdated: () => {
+              if (active) void reloadLocalData();
+            },
+            onStatusChanged: (summary) => {
+              if (active) setSyncState(summary);
+            },
+          });
+        }
+
+        // Push any local pending entries (e.g. stories written on tablet while offline)
+        // and fetch any missing items from the cloud
         if (initialSummary.configured && initialSummary.online) {
           await runSync();
         }
@@ -96,6 +114,9 @@ export function App() {
     void init();
     return () => {
       active = false;
+      if (unsubscribeRealtime) {
+        unsubscribeRealtime();
+      }
     };
   }, [reloadLocalData, runSync]);
 
@@ -251,6 +272,7 @@ export function App() {
           profiles={profiles}
           entryCounts={entryCounts}
           parentMode={parentMode}
+          syncState={syncState}
           onSelectChild={(id) => setActiveChildId(id)}
           onEditProfile={(profile) => setProfileModalTarget({ open: true, profile })}
           onAddProfile={() => setProfileModalTarget({ open: true, profile: null })}
