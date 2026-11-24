@@ -335,12 +335,25 @@ export function JournalWorkspace({
             </span>
           </button>
 
-          <p className="text-[11px] font-bold text-walnut text-center pt-0.5 flex items-center justify-center gap-1.5">
-            {isRealtime && (
-              <span className="w-1.5 h-1.5 rounded-full bg-forest shrink-0 animate-pulse" />
-            )}
-            <span>{quietSyncText}</span>
-          </p>
+          <div className="pt-0.5 space-y-1 text-center">
+            <p className="text-[11px] font-bold text-walnut flex items-center justify-center gap-1.5">
+              {isRealtime && (
+                <span className="w-1.5 h-1.5 rounded-full bg-forest shrink-0 animate-pulse" />
+              )}
+              <span>{quietSyncText}</span>
+            </p>
+            <div className="flex items-center justify-center gap-2 text-[10px] text-walnut">
+              <span className="px-1.5 py-0.2 rounded bg-parchment border border-rule">v1.1.0</span>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="font-bold text-forest hover:underline cursor-pointer"
+                title="Muat ulang halaman"
+              >
+                Muat Ulang
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 

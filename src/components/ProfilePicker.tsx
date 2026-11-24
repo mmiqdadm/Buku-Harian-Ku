@@ -247,20 +247,33 @@ export function ProfilePicker({
 
       {/* Quiet Footer */}
       <footer className="max-w-6xl w-full mx-auto pt-4 border-t border-rule flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-walnut">
-        <span className="flex items-center gap-1.5">
-          {syncState?.configured && syncState.online && (
-            <span className="w-1.5 h-1.5 rounded-full bg-forest shrink-0 animate-pulse" />
-          )}
-          <span>
-            {!syncState?.configured
-              ? 'Tersimpan di perangkat ini'
-              : !syncState.online
-                ? 'Mode offline (tersimpan aman di perangkat ini)'
-                : syncState.syncing
-                  ? 'Menyelaraskan ke cloud...'
-                  : 'Tersinkron realtime ke cloud'}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="flex items-center gap-1.5">
+            {syncState?.configured && syncState.online && (
+              <span className="w-1.5 h-1.5 rounded-full bg-forest shrink-0 animate-pulse" />
+            )}
+            <span>
+              {!syncState?.configured
+                ? 'Tersimpan di perangkat ini'
+                : !syncState.online
+                  ? 'Mode offline (tersimpan aman di perangkat ini)'
+                  : syncState.syncing
+                    ? 'Menyelaraskan ke cloud...'
+                    : 'Tersinkron realtime ke cloud'}
+            </span>
           </span>
-        </span>
+          <span className="text-[11px] px-2 py-0.5 rounded bg-parchment border border-rule text-walnut">
+            v1.1.0
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-[11px] font-bold text-forest hover:underline cursor-pointer"
+            title="Muat ulang untuk memeriksa pembaruan aplikasi"
+          >
+            Muat Ulang
+          </button>
+        </div>
         <span>Dirancang untuk layar mendatar (tablet dengan keyboard &amp; laptop).</span>
       </footer>
     </div>
