@@ -12,6 +12,7 @@ import { deleteMediaBlobLocal, saveMediaBlobLocal } from '../lib/db';
 import { formatDateLongID } from '../lib/date';
 import { CameraModal } from './CameraModal';
 import { MediaGallery } from './MediaPreview';
+import { ExportStoryModal } from './ExportStoryModal';
 import {
   BookCoverIcon,
   CameraLensIcon,
@@ -21,6 +22,7 @@ import {
   PlusMarkIcon,
   SwitchUsersIcon,
   TrashBinIcon,
+  WordDocIcon,
 } from './Icons';
 
 interface StoryWorkspaceProps {
@@ -118,6 +120,7 @@ export function StoryWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [confirmDeleteStory, setConfirmDeleteStory] = useState(false);
   const [pendingSwitchAction, setPendingSwitchAction] = useState<(() => void) | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   const activeStory = useMemo(
     () => childStories.find((s) => s.id === selectedStoryId) ?? null,
@@ -584,6 +587,17 @@ export function StoryWorkspace({
 
         {/* Bottom Utility Bar */}
         <div className="p-4 border-t border-rule space-y-2 bg-paper/50">
+          {activeStory && (
+            <button
+              type="button"
+              onClick={() => setShowExportModal(true)}
+              className="w-full py-2 px-3 min-h-[38px] rounded-xl border border-rule-strong bg-cream text-ink text-xs font-bold hover:bg-paper flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <WordDocIcon className="w-4 h-4 text-forest" />
+              <span>Export Buku (Word &amp; PDF)</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onToggleParentMode}
@@ -652,6 +666,15 @@ export function StoryWorkspace({
                     Ada perubahan belum disimpan
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowExportModal(true)}
+                  className="px-3.5 py-2 min-h-[40px] rounded-xl border border-rule-strong bg-cream text-ink text-xs sm:text-sm font-bold hover:bg-paper flex items-center gap-1.5 cursor-pointer"
+                  title="Export buku cerita ke Word atau PDF"
+                >
+                  <WordDocIcon className="w-4 h-4 text-forest" />
+                  <span>Export</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleSaveCurrentStory}
@@ -1032,6 +1055,13 @@ export function StoryWorkspace({
             </div>
           </div>
         </div>
+      )}
+      {showExportModal && activeStory && (
+        <ExportStoryModal
+          story={activeStory}
+          author={child}
+          onClose={() => setShowExportModal(false)}
+        />
       )}
     </div>
   );

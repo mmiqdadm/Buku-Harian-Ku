@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChildProfile, JournalEntry } from '../types';
 import { getTodayDateKey } from '../lib/date';
-import { CloseCrossIcon, WordDocIcon } from './Icons';
+import { CloseCrossIcon, PdfDocIcon, WordDocIcon } from './Icons';
 
 function filterByDateRange(
   entries: JournalEntry[],
@@ -28,7 +28,7 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
 
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [endDate, setEndDate] = useState(today);
-  const [exporting, setExporting] = useState(false);
+  const [exportingType, setExportingType] = useState<'word' | 'pdf' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,7 +76,7 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
     }
   }
 
-  async function handleExport() {
+  async function handleExportWord() {
     if (!startDate || !endDate || startDate > endDate) {
       setError('Tanggal mulai harus lebih awal atau sama dengan tanggal akhir.');
       return;
@@ -86,7 +86,7 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
       return;
     }
 
-    setExporting(true);
+    setExportingType('word');
     setError(null);
     setMessage(null);
     try {
@@ -97,13 +97,44 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
         startDate,
         endDate,
       });
-      setMessage(`Berhasil mengunduh ${fileName}. File bisa langsung dibuka di Microsoft Word atau Google Docs.`);
+      setMessage(`Berhasil mengunduh dokumen Word: ${fileName}.`);
     } catch {
       setError('Gagal membuat file Word. Silakan coba lagi.');
     } finally {
-      setExporting(false);
+      setExportingType(null);
     }
   }
+
+  async function handleExportPdf() {
+    if (!startDate || !endDate || startDate > endDate) {
+      setError('Tanggal mulai harus lebih awal atau sama dengan tanggal akhir.');
+      return;
+    }
+    if (matching.length === 0) {
+      setError('Tidak ada cerita dalam rentang tanggal yang dipilih.');
+      return;
+    }
+
+    setExportingType('pdf');
+    setError(null);
+    setMessage(null);
+    try {
+      const { exportDiaryToPdf } = await import('../lib/exportPdf');
+      const fileName = await exportDiaryToPdf({
+        child,
+        entries,
+        startDate,
+        endDate,
+      });
+      setMessage(`Berhasil mengunduh dokumen PDF: ${fileName}. Siap dicetak atau dibaca di perangkat apapun.`);
+    } catch {
+      setError('Gagal membuat file PDF. Silakan coba lagi.');
+    } finally {
+      setExportingType(null);
+    }
+  }
+
+  const isExporting = exportingType !== null;
 
   return (
     <div
@@ -121,10 +152,10 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
             <WordDocIcon className="w-5 h-5 text-forest" />
             <div>
               <h2 id="export-modal-title" className="text-lg font-bold text-ink">
-                Export Buku {child.name} ke Word
+                Export Buku Harian {child.name}
               </h2>
               <p className="text-xs font-semibold text-walnut">
-                Pilih rentang tanggal cerita yang ingin disimpan sebagai file .docx.
+                Simpan catatan harian ke file dokumen Word (.docx) atau PDF (.pdf).
               </p>
             </div>
           </div>
@@ -206,7 +237,7 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
                 : `Ditemukan ${matching.length} cerita siap di-export`}
             </div>
             <p className="text-xs font-semibold text-walnut">
-              Dokumen Word akan memuat biodata anak, tanggal lengkap, isi tulisan, serta foto yang dilampirkan.
+              Dokumen akan memuat biodata anak, tanggal cerita, isi tulisan, serta foto beresolusi tajam.
             </p>
           </div>
 
@@ -222,7 +253,7 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2.5 pt-2">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
             <button
               type="button"
               onClick={onClose}
@@ -232,12 +263,21 @@ export function ExportWordModal({ child, entries, onClose }: ExportWordModalProp
             </button>
             <button
               type="button"
-              onClick={handleExport}
-              disabled={exporting || matching.length === 0}
-              className="px-5 py-2.5 min-h-[44px] rounded-xl bg-forest text-white text-sm font-bold hover:bg-forest-hover disabled:opacity-45 flex items-center gap-2 cursor-pointer"
+              onClick={handleExportPdf}
+              disabled={isExporting || matching.length === 0}
+              className="px-4 py-2.5 min-h-[44px] rounded-xl bg-terracotta text-white text-sm font-bold hover:bg-terracotta-hover disabled:opacity-45 flex items-center gap-2 cursor-pointer shadow-xs"
+            >
+              <PdfDocIcon className="w-4 h-4" />
+              <span>{exportingType === 'pdf' ? 'Menyiapkan PDF...' : 'Unduh PDF (.pdf)'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportWord}
+              disabled={isExporting || matching.length === 0}
+              className="px-4 py-2.5 min-h-[44px] rounded-xl bg-forest text-white text-sm font-bold hover:bg-forest-hover disabled:opacity-45 flex items-center gap-2 cursor-pointer shadow-xs"
             >
               <WordDocIcon className="w-4 h-4" />
-              <span>{exporting ? 'Menyiapkan File...' : 'Unduh Word (.docx)'}</span>
+              <span>{exportingType === 'word' ? 'Menyiapkan Word...' : 'Unduh Word (.docx)'}</span>
             </button>
           </div>
         </div>

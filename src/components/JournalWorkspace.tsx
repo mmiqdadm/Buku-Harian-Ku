@@ -329,7 +329,7 @@ export function JournalWorkspace({
             className="w-full px-3.5 py-2.5 min-h-[42px] rounded-xl border border-rule-strong bg-paper text-ink text-xs font-bold hover:bg-cream flex items-center justify-center gap-2 cursor-pointer"
           >
             <WordDocIcon className="w-4 h-4 text-forest" />
-            <span>Export Word (.docx)</span>
+            <span>Export (Word &amp; PDF)</span>
           </button>
 
           <button

@@ -101,6 +101,19 @@ export function WordDocIcon({ className = 'w-5 h-5', ...props }: IconProps) {
   );
 }
 
+export function PdfDocIcon({ className = 'w-5 h-5', ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true" {...props}>
+      <path d="M14 2.5H6.5a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8L14 2.5z" />
+      <polyline points="14 2.5 14 8 19.5 8" />
+      <path d="M9 13v4" />
+      <path d="M9 13h1.8a1.2 1.2 0 0 1 0 2.4H9" />
+      <path d="M13.5 13v4" />
+      <path d="M13.5 13h1.5a2 2 0 0 1 0 4h-1.5" />
+    </svg>
+  );
+}
+
 export function CloudSyncIcon({ className = 'w-5 h-5', ...props }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true" {...props}>
